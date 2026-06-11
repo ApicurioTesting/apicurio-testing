@@ -68,31 +68,35 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Update .env file if custom versions are specified
-ENV_FILE="$SCRIPT_DIR/.env"
-if [ -n "$KAFKA_VERSION" ]; then
-    sed -i.bak "s/^KAFKA_VERSION=.*/KAFKA_VERSION=$KAFKA_VERSION/" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-    log "Using Kafka version: $KAFKA_VERSION"
-fi
-if [ -n "$APICURIO_VERSION" ]; then
-    sed -i.bak "s/^APICURIO_VERSION=.*/APICURIO_VERSION=$APICURIO_VERSION/" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-    log "Using Apicurio version: $APICURIO_VERSION"
-fi
-if [ -n "$REGISTRY_IMAGE" ]; then
-    sed -i.bak "s|^REGISTRY_IMAGE=.*|REGISTRY_IMAGE=$REGISTRY_IMAGE|" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-    log "Using Registry image: $REGISTRY_IMAGE"
-fi
-if [ -n "$MAVEN_REPO_URL" ]; then
-    sed -i.bak "s|^MAVEN_REPO_URL=.*|MAVEN_REPO_URL=$MAVEN_REPO_URL|" "$ENV_FILE"
-    rm -f "$ENV_FILE.bak"
-    log "Using Maven repo: $MAVEN_REPO_URL"
-fi
+# Read defaults from .env, then override with CLI arguments.
+# Write a temporary .env.override file so the tracked .env is never modified.
+CLI_KAFKA_VERSION="$KAFKA_VERSION"
+CLI_APICURIO_VERSION="$APICURIO_VERSION"
+CLI_REGISTRY_IMAGE="$REGISTRY_IMAGE"
+CLI_MAVEN_REPO_URL="$MAVEN_REPO_URL"
 
-# Read current versions from .env
-source "$ENV_FILE"
+source "$SCRIPT_DIR/.env"
+
+KAFKA_VERSION="${CLI_KAFKA_VERSION:-$KAFKA_VERSION}"
+APICURIO_VERSION="${CLI_APICURIO_VERSION:-$APICURIO_VERSION}"
+REGISTRY_IMAGE="${CLI_REGISTRY_IMAGE:-$REGISTRY_IMAGE}"
+MAVEN_REPO_URL="${CLI_MAVEN_REPO_URL:-$MAVEN_REPO_URL}"
+
+ENV_OVERRIDE="$SCRIPT_DIR/.env.override"
+cat > "$ENV_OVERRIDE" <<EOF
+KAFKA_VERSION=${KAFKA_VERSION}
+APICURIO_VERSION=${APICURIO_VERSION}
+REGISTRY_IMAGE=${REGISTRY_IMAGE}
+MAVEN_REPO_URL=${MAVEN_REPO_URL}
+EOF
+
+# Point all step scripts at the override file
+export ENV_FILE="$ENV_OVERRIDE"
+
+cleanup_env_override() {
+    rm -f "$ENV_OVERRIDE"
+}
+trap cleanup_env_override EXIT
 
 pause_step() {
     if [ "$PAUSE_BETWEEN_STEPS" = true ]; then

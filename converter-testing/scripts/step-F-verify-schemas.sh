@@ -7,21 +7,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="$PROJECT_DIR/logs"
-DATA_DIR="$PROJECT_DIR/data"
+source "$SCRIPT_DIR/common.sh"
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$DATA_DIR"
-
-LOG_FILE="$LOG_DIR/step-F-verify-schemas.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
-
-REGISTRY_URL="http://localhost:8080"
-REGISTRY_API="$REGISTRY_URL/apis/registry/v3"
+init_log "step-F-verify-schemas.log"
 
 log "================================================================"
 log "  Step F: Verify Schemas in Apicurio Registry"
@@ -75,11 +63,11 @@ if [ "$ARTIFACT_COUNT" -gt 0 ]; then
         CONTENT=$(curl -s "$REGISTRY_API/groups/$GROUP_ID/artifacts/$ARTIFACT_ID/versions/$LATEST_VERSION/content" 2>/dev/null)
         if [ -n "$CONTENT" ]; then
             log "    Latest version ($LATEST_VERSION) content:"
-            echo "$CONTENT" | jq '.' 2>/dev/null | head -20 | while IFS= read -r line; do
-                log "      $line"
-            done
-            # If jq failed (not JSON), show raw content
-            if [ $? -ne 0 ]; then
+            if echo "$CONTENT" | jq '.' > /dev/null 2>&1; then
+                echo "$CONTENT" | jq '.' | head -20 | while IFS= read -r line; do
+                    log "      $line"
+                done
+            else
                 echo "$CONTENT" | head -5 | while IFS= read -r line; do
                     log "      $line"
                 done
@@ -112,8 +100,8 @@ Artifacts:
 $(echo "$SEARCH_RESULT" | jq -r '.artifacts[] | "  - [\(.groupId // "default")] \(.artifactId) (type: \(.artifactType // "unknown"))"' 2>/dev/null || echo "  (none)")
 
 Connector Status:
-$(curl -s http://localhost:8083/connectors 2>/dev/null | jq -r '.[]' 2>/dev/null | while read -r name; do
-    STATUS=$(curl -s "http://localhost:8083/connectors/$name/status" | jq -r '.connector.state' 2>/dev/null)
+$(curl -s "$CONNECT_URL/connectors" 2>/dev/null | jq -r '.[]' 2>/dev/null | while read -r name; do
+    STATUS=$(curl -s "$CONNECT_URL/connectors/$name/status" | jq -r '.connector.state' 2>/dev/null)
     echo "  - $name: $STATUS"
 done)
 

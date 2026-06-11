@@ -11,22 +11,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONNECTORS_DIR="$PROJECT_DIR/connectors"
-LOG_DIR="$PROJECT_DIR/logs"
-DATA_DIR="$PROJECT_DIR/data"
+source "$SCRIPT_DIR/common.sh"
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$DATA_DIR"
-
-LOG_FILE="$LOG_DIR/step-D-test-avro-converter.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
-
-CONNECT_URL="http://localhost:8083"
-REGISTRY_URL="http://localhost:8080"
+init_log "step-D-test-avro-converter.log"
 
 log "================================================================"
 log "  Step D: Test Avro Converter"
@@ -41,7 +28,7 @@ if ! curl -sf "$CONNECT_URL/" > /dev/null 2>&1; then
 fi
 log "  Kafka Connect is running"
 
-if ! curl -sf "$REGISTRY_URL/health/ready" > /dev/null 2>&1; then
+if ! curl -sf "$REGISTRY_HEALTH_URL" > /dev/null 2>&1; then
     log "Apicurio Registry is not running. Please run step-B-deploy-registry.sh first."
     exit 1
 fi
@@ -57,64 +44,32 @@ TEST_LINES=(
     "Verifying schema registration works - line 4"
     "Final test message for Avro converter - line 5"
 )
+SOURCE_LINE_COUNT=${#TEST_LINES[@]}
 
 for line in "${TEST_LINES[@]}"; do
     docker exec converter-connect sh -c "echo '$line' >> /data/avro-source-input.txt"
 done
-log "  Wrote ${#TEST_LINES[@]} lines to source file"
+log "  Wrote $SOURCE_LINE_COUNT lines to source file"
 log ""
 
 # Step 3: Create source connector with Avro converter
 log "[3/7] Creating Avro FileStreamSource connector..."
-SOURCE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -d @"$CONNECTORS_DIR/avro-file-source.json" \
-    "$CONNECT_URL/connectors")
-
-SOURCE_HTTP_CODE=$(echo "$SOURCE_RESPONSE" | tail -1)
-SOURCE_BODY=$(echo "$SOURCE_RESPONSE" | head -n -1)
-
-if [ "$SOURCE_HTTP_CODE" = "201" ] || [ "$SOURCE_HTTP_CODE" = "200" ]; then
-    log "  Source connector created successfully (HTTP $SOURCE_HTTP_CODE)"
-elif [ "$SOURCE_HTTP_CODE" = "409" ]; then
-    log "  Source connector already exists, deleting and recreating..."
-    curl -s -X DELETE "$CONNECT_URL/connectors/avro-file-source" > /dev/null 2>&1
-    sleep 2
-    SOURCE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-        -H "Content-Type: application/json" \
-        -d @"$CONNECTORS_DIR/avro-file-source.json" \
-        "$CONNECT_URL/connectors")
-    SOURCE_HTTP_CODE=$(echo "$SOURCE_RESPONSE" | tail -1)
-    if [ "$SOURCE_HTTP_CODE" = "201" ] || [ "$SOURCE_HTTP_CODE" = "200" ]; then
-        log "  Source connector recreated successfully"
-    else
-        log "  Failed to create source connector (HTTP $SOURCE_HTTP_CODE)"
-        log "  Response: $SOURCE_BODY"
-        exit 1
-    fi
-else
-    log "  Failed to create source connector (HTTP $SOURCE_HTTP_CODE)"
-    log "  Response: $SOURCE_BODY"
+if ! create_connector "$CONNECTORS_DIR/avro-file-source.json" "avro-file-source"; then
     exit 1
 fi
 log ""
 
 # Step 4: Wait for source connector to process data
-log "[4/7] Waiting for source connector to process data..."
-sleep 10
-
-# Check source connector status
-SOURCE_STATUS=$(curl -s "$CONNECT_URL/connectors/avro-file-source/status")
-SOURCE_STATE=$(echo "$SOURCE_STATUS" | jq -r '.connector.state')
-log "  Source connector state: $SOURCE_STATE"
-
-if [ "$SOURCE_STATE" != "RUNNING" ]; then
-    log "  WARNING: Source connector is not RUNNING"
+log "[4/7] Waiting for source connector to be running..."
+if ! wait_for_connector_running "avro-file-source" 30; then
+    SOURCE_STATUS=$(curl -s "$CONNECT_URL/connectors/avro-file-source/status")
     log "  Full status: $SOURCE_STATUS"
 fi
 
-# Check task status
+SOURCE_STATUS=$(curl -s "$CONNECT_URL/connectors/avro-file-source/status")
+SOURCE_STATE=$(echo "$SOURCE_STATUS" | jq -r '.connector.state')
 TASK_STATE=$(echo "$SOURCE_STATUS" | jq -r '.tasks[0].state // "UNKNOWN"')
+log "  Source connector state: $SOURCE_STATE"
 log "  Source task state: $TASK_STATE"
 if [ "$TASK_STATE" = "FAILED" ]; then
     TASK_TRACE=$(echo "$SOURCE_STATUS" | jq -r '.tasks[0].trace // "no trace"')
@@ -124,53 +79,26 @@ log ""
 
 # Step 5: Create sink connector with Avro converter
 log "[5/7] Creating Avro FileStreamSink connector..."
-SINK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -d @"$CONNECTORS_DIR/avro-file-sink.json" \
-    "$CONNECT_URL/connectors")
-
-SINK_HTTP_CODE=$(echo "$SINK_RESPONSE" | tail -1)
-SINK_BODY=$(echo "$SINK_RESPONSE" | head -n -1)
-
-if [ "$SINK_HTTP_CODE" = "201" ] || [ "$SINK_HTTP_CODE" = "200" ]; then
-    log "  Sink connector created successfully (HTTP $SINK_HTTP_CODE)"
-elif [ "$SINK_HTTP_CODE" = "409" ]; then
-    log "  Sink connector already exists, deleting and recreating..."
-    curl -s -X DELETE "$CONNECT_URL/connectors/avro-file-sink" > /dev/null 2>&1
-    sleep 2
-    SINK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-        -H "Content-Type: application/json" \
-        -d @"$CONNECTORS_DIR/avro-file-sink.json" \
-        "$CONNECT_URL/connectors")
-    SINK_HTTP_CODE=$(echo "$SINK_RESPONSE" | tail -1)
-    if [ "$SINK_HTTP_CODE" = "201" ] || [ "$SINK_HTTP_CODE" = "200" ]; then
-        log "  Sink connector recreated successfully"
-    else
-        log "  Failed to create sink connector (HTTP $SINK_HTTP_CODE)"
-        log "  Response: $SINK_BODY"
-        exit 1
-    fi
-else
-    log "  Failed to create sink connector (HTTP $SINK_HTTP_CODE)"
-    log "  Response: $SINK_BODY"
+if ! create_connector "$CONNECTORS_DIR/avro-file-sink.json" "avro-file-sink"; then
     exit 1
 fi
 log ""
 
 # Step 6: Wait and verify sink output
 log "[6/7] Waiting for sink connector to consume data..."
-sleep 15
+wait_for_connector_running "avro-file-sink" 30 || true
 
 SINK_STATUS=$(curl -s "$CONNECT_URL/connectors/avro-file-sink/status")
 SINK_STATE=$(echo "$SINK_STATUS" | jq -r '.connector.state')
-log "  Sink connector state: $SINK_STATE"
-
 SINK_TASK_STATE=$(echo "$SINK_STATUS" | jq -r '.tasks[0].state // "UNKNOWN"')
+log "  Sink connector state: $SINK_STATE"
 log "  Sink task state: $SINK_TASK_STATE"
 if [ "$SINK_TASK_STATE" = "FAILED" ]; then
     SINK_TASK_TRACE=$(echo "$SINK_STATUS" | jq -r '.tasks[0].trace // "no trace"')
     log "  Sink task error trace: $SINK_TASK_TRACE"
 fi
+
+wait_for_sink_output "/data/avro-sink-output.txt" 30 || true
 
 # Check sink output file
 log ""
@@ -213,9 +141,13 @@ if [ "$TOPIC_OFFSET" -eq 0 ]; then
     AVRO_TEST_PASSED=false
     log "FAIL: No messages in topic"
 fi
+if [ -n "$SINK_CONTENT" ] && [ "$SINK_LINE_COUNT" -ne "$SOURCE_LINE_COUNT" ]; then
+    AVRO_TEST_PASSED=false
+    log "FAIL: Sink output line count ($SINK_LINE_COUNT) does not match source input ($SOURCE_LINE_COUNT)"
+fi
 
 # Collect container logs
-docker logs converter-connect > "$LOG_DIR/containers/connect-after-avro.log" 2>&1
+docker logs converter-connect > "$CONTAINER_LOG_DIR/connect-after-avro.log" 2>&1
 
 log "================================================================"
 if [ "$AVRO_TEST_PASSED" = true ]; then
@@ -232,3 +164,7 @@ log "  Messages in topic: $TOPIC_OFFSET"
 log ""
 log "Logs saved to: $LOG_FILE"
 log ""
+
+if [ "$AVRO_TEST_PASSED" != true ]; then
+    exit 1
+fi

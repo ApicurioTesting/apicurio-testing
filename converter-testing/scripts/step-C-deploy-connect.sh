@@ -7,42 +7,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/common.sh"
+
 COMPOSE_FILE="$PROJECT_DIR/docker-compose-connect.yml"
-ENV_FILE="$PROJECT_DIR/.env"
-LOG_DIR="$PROJECT_DIR/logs"
-CONTAINER_LOG_DIR="$LOG_DIR/containers"
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$CONTAINER_LOG_DIR"
-
-LOG_FILE="$LOG_DIR/step-C-deploy-connect.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
-
-wait_for_url() {
-    local url=$1
-    local timeout=${2:-120}
-    local interval=3
-    local elapsed=0
-
-    log "Waiting for $url to be healthy (timeout: ${timeout}s)..."
-    while [ $elapsed -lt $timeout ]; do
-        if curl -sf "$url" > /dev/null 2>&1; then
-            log "Health check passed after ${elapsed}s"
-            return 0
-        fi
-        echo -n "."
-        sleep $interval
-        elapsed=$((elapsed + interval))
-    done
-
-    log ""
-    log "Health check failed after ${timeout}s"
-    return 1
-}
+init_log "step-C-deploy-connect.log"
 
 log "================================================================"
 log "  Step C: Deploy Kafka Connect"
@@ -61,7 +30,7 @@ log ""
 
 # Step 3: Wait for Connect to be ready
 log "[3/4] Waiting for Kafka Connect to be ready..."
-if ! wait_for_url "http://localhost:8083/" 120; then
+if ! wait_for_url "$CONNECT_URL/" 120 3; then
     log ""
     log "Failed to start Kafka Connect. Check logs:"
     log "  docker logs converter-connect"
@@ -71,18 +40,18 @@ log ""
 
 # Step 4: Verify Connect and list available plugins
 log "[4/4] Verifying Kafka Connect and available plugins..."
-CONNECT_INFO=$(curl -s http://localhost:8083/)
+CONNECT_INFO=$(curl -s "$CONNECT_URL/")
 log "Connect Worker Info:"
 log "  $CONNECT_INFO"
 log ""
 
 log "Available connector plugins:"
-curl -s http://localhost:8083/connector-plugins | jq -r '.[].class' 2>/dev/null | tee -a "$LOG_FILE"
+curl -s "$CONNECT_URL/connector-plugins" | jq -r '.[].class' 2>/dev/null | tee -a "$LOG_FILE"
 log ""
 
 # Check if Apicurio converter classes are available
 log "Checking Apicurio converter availability..."
-PLUGINS=$(curl -s http://localhost:8083/connector-plugins)
+PLUGINS=$(curl -s "$CONNECT_URL/connector-plugins")
 log "  Connector plugins loaded: $(echo "$PLUGINS" | jq length)"
 log ""
 
@@ -104,7 +73,7 @@ log "================================================================"
 log "  Step C completed successfully"
 log "================================================================"
 log ""
-log "Kafka Connect is running at: http://localhost:8083"
+log "Kafka Connect is running at: $CONNECT_URL"
 log "Plugin path: /opt/kafka/connect-plugins"
 log "Logs saved to: $LOG_FILE"
 log ""

@@ -6,42 +6,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/common.sh"
+
 COMPOSE_FILE="$PROJECT_DIR/docker-compose-kafka.yml"
-ENV_FILE="$PROJECT_DIR/.env"
-LOG_DIR="$PROJECT_DIR/logs"
-CONTAINER_LOG_DIR="$LOG_DIR/containers"
 
-# Create log directories
-mkdir -p "$LOG_DIR"
-mkdir -p "$CONTAINER_LOG_DIR"
-
-LOG_FILE="$LOG_DIR/step-A-deploy-kafka.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
-
-wait_for_kafka() {
-    local timeout=${1:-90}
-    local interval=2
-    local elapsed=0
-
-    log "Waiting for Kafka broker to be ready (timeout: ${timeout}s)..."
-    while [ $elapsed -lt $timeout ]; do
-        if docker exec converter-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1; then
-            log "Kafka broker is ready after ${elapsed}s"
-            return 0
-        fi
-        echo -n "."
-        sleep $interval
-        elapsed=$((elapsed + interval))
-    done
-
-    log ""
-    log "Kafka broker failed to start after ${timeout}s"
-    return 1
-}
+init_log "step-A-deploy-kafka.log"
 
 log "================================================================"
 log "  Step A: Deploy Kafka Cluster"

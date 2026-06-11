@@ -7,17 +7,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/common.sh"
+
 CLIENT_DIR="$PROJECT_DIR/clients/converter-test"
-LOG_DIR="$PROJECT_DIR/logs"
 
-mkdir -p "$LOG_DIR"
+init_log "build-and-run-client.log"
 
-LOG_FILE="$LOG_DIR/build-and-run-client.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
+# Read Apicurio version from .env so the Java client builds against the same version
+source "$ENV_FILE"
 
 log "================================================================"
 log "  Build and Run Java Converter Test Client"
@@ -26,7 +23,7 @@ log ""
 
 # Verify prerequisites
 log "[1/3] Verifying prerequisites..."
-if ! curl -sf http://localhost:8080/health/ready > /dev/null 2>&1; then
+if ! curl -sf "$REGISTRY_HEALTH_URL" > /dev/null 2>&1; then
     log "Apicurio Registry is not running. Please deploy it first."
     exit 1
 fi
@@ -41,8 +38,9 @@ log ""
 
 # Build the client
 log "[2/3] Building converter test client..."
+log "  Using Apicurio Registry version: ${APICURIO_VERSION}"
 cd "$CLIENT_DIR"
-if mvn clean package -DskipTests 2>&1 | tee -a "$LOG_FILE"; then
+if mvn clean package -DskipTests -Dapicurio-registry.version="${APICURIO_VERSION}" 2>&1 | tee -a "$LOG_FILE"; then
     log ""
     log "  Build successful"
 else

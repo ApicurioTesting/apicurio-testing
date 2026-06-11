@@ -114,6 +114,7 @@ converter-testing/
 │       ├── pom.xml
 │       └── src/main/java/...
 ├── scripts/
+│   ├── common.sh                      # Shared utility functions
 │   ├── step-A-deploy-kafka.sh
 │   ├── step-B-deploy-registry.sh
 │   ├── step-C-deploy-connect.sh

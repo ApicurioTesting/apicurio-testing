@@ -3,3 +3,4 @@ data/*.txt
 data/*.json
 !data/.gitkeep
 clients/*/target/
+.env.override

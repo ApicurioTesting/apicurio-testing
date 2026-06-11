@@ -10,22 +10,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONNECTORS_DIR="$PROJECT_DIR/connectors"
-LOG_DIR="$PROJECT_DIR/logs"
-DATA_DIR="$PROJECT_DIR/data"
+source "$SCRIPT_DIR/common.sh"
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$DATA_DIR"
-
-LOG_FILE="$LOG_DIR/step-E-test-json-converter.log"
-
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
-
-CONNECT_URL="http://localhost:8083"
-REGISTRY_URL="http://localhost:8080"
+init_log "step-E-test-json-converter.log"
 
 log "================================================================"
 log "  Step E: Test ExtJSON Converter"
@@ -48,39 +35,27 @@ TEST_LINES=(
     "ExtJSON serialization verification - line 2"
     "Schema registry integration test - line 3"
 )
+SOURCE_LINE_COUNT=${#TEST_LINES[@]}
 
 for line in "${TEST_LINES[@]}"; do
     docker exec converter-connect sh -c "echo '$line' >> /data/json-source-input.txt"
 done
-log "  Wrote ${#TEST_LINES[@]} lines to source file"
+log "  Wrote $SOURCE_LINE_COUNT lines to source file"
 log ""
 
 # Step 3: Create source connector
 log "[3/6] Creating ExtJSON FileStreamSource connector..."
-SOURCE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -d @"$CONNECTORS_DIR/json-file-source.json" \
-    "$CONNECT_URL/connectors")
-
-SOURCE_HTTP_CODE=$(echo "$SOURCE_RESPONSE" | tail -1)
-if [ "$SOURCE_HTTP_CODE" = "201" ] || [ "$SOURCE_HTTP_CODE" = "200" ]; then
-    log "  Source connector created successfully"
-elif [ "$SOURCE_HTTP_CODE" = "409" ]; then
-    curl -s -X DELETE "$CONNECT_URL/connectors/json-file-source" > /dev/null 2>&1
-    sleep 2
-    curl -s -X POST -H "Content-Type: application/json" \
-        -d @"$CONNECTORS_DIR/json-file-source.json" \
-        "$CONNECT_URL/connectors" > /dev/null
-    log "  Source connector recreated"
-else
-    log "  Failed to create source connector (HTTP $SOURCE_HTTP_CODE)"
+if ! create_connector "$CONNECTORS_DIR/json-file-source.json" "json-file-source"; then
     exit 1
 fi
 log ""
 
 # Step 4: Wait for data processing
-log "[4/6] Waiting for source connector to process data..."
-sleep 10
+log "[4/6] Waiting for source connector to be running..."
+if ! wait_for_connector_running "json-file-source" 30; then
+    SOURCE_STATUS=$(curl -s "$CONNECT_URL/connectors/json-file-source/status")
+    log "  Full status: $SOURCE_STATUS"
+fi
 
 SOURCE_STATUS=$(curl -s "$CONNECT_URL/connectors/json-file-source/status")
 SOURCE_STATE=$(echo "$SOURCE_STATUS" | jq -r '.connector.state')
@@ -94,30 +69,14 @@ log ""
 
 # Step 5: Create sink connector
 log "[5/6] Creating ExtJSON FileStreamSink connector..."
-SINK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "Content-Type: application/json" \
-    -d @"$CONNECTORS_DIR/json-file-sink.json" \
-    "$CONNECT_URL/connectors")
-
-SINK_HTTP_CODE=$(echo "$SINK_RESPONSE" | tail -1)
-if [ "$SINK_HTTP_CODE" = "201" ] || [ "$SINK_HTTP_CODE" = "200" ]; then
-    log "  Sink connector created successfully"
-elif [ "$SINK_HTTP_CODE" = "409" ]; then
-    curl -s -X DELETE "$CONNECT_URL/connectors/json-file-sink" > /dev/null 2>&1
-    sleep 2
-    curl -s -X POST -H "Content-Type: application/json" \
-        -d @"$CONNECTORS_DIR/json-file-sink.json" \
-        "$CONNECT_URL/connectors" > /dev/null
-    log "  Sink connector recreated"
-else
-    log "  Failed to create sink connector (HTTP $SINK_HTTP_CODE)"
+if ! create_connector "$CONNECTORS_DIR/json-file-sink.json" "json-file-sink"; then
     exit 1
 fi
 log ""
 
 # Step 6: Verify
 log "[6/6] Waiting and verifying results..."
-sleep 15
+wait_for_connector_running "json-file-sink" 30 || true
 
 SINK_STATUS=$(curl -s "$CONNECT_URL/connectors/json-file-sink/status")
 SINK_STATE=$(echo "$SINK_STATUS" | jq -r '.connector.state')
@@ -127,6 +86,8 @@ if [ "$SINK_TASK_STATE" = "FAILED" ]; then
     SINK_TRACE=$(echo "$SINK_STATUS" | jq -r '.tasks[0].trace // "no trace"')
     log "  Sink task error: $SINK_TRACE"
 fi
+
+wait_for_sink_output "/data/json-sink-output.txt" 30 || true
 
 SINK_CONTENT=$(docker exec converter-connect cat /data/json-sink-output.txt 2>/dev/null || echo "")
 if [ -n "$SINK_CONTENT" ]; then
@@ -143,12 +104,25 @@ TOPIC_OFFSET=$(docker exec converter-kafka /opt/kafka/bin/kafka-run-class.sh kaf
 log "  Messages in json-converter-test topic: $TOPIC_OFFSET"
 log ""
 
-docker logs converter-connect > "$LOG_DIR/containers/connect-after-json.log" 2>&1
+docker logs converter-connect > "$CONTAINER_LOG_DIR/connect-after-json.log" 2>&1
 
 JSON_TEST_PASSED=true
-if [ "$SOURCE_STATE" != "RUNNING" ]; then JSON_TEST_PASSED=false; fi
-if [ "$TASK_STATE" = "FAILED" ]; then JSON_TEST_PASSED=false; fi
-if [ "$TOPIC_OFFSET" -eq 0 ]; then JSON_TEST_PASSED=false; fi
+if [ "$SOURCE_STATE" != "RUNNING" ]; then
+    JSON_TEST_PASSED=false
+    log "FAIL: Source connector is not running"
+fi
+if [ "$TASK_STATE" = "FAILED" ]; then
+    JSON_TEST_PASSED=false
+    log "FAIL: Source task failed"
+fi
+if [ "$TOPIC_OFFSET" -eq 0 ]; then
+    JSON_TEST_PASSED=false
+    log "FAIL: No messages in topic"
+fi
+if [ -n "$SINK_CONTENT" ] && [ "$SINK_LINE_COUNT" -ne "$SOURCE_LINE_COUNT" ]; then
+    JSON_TEST_PASSED=false
+    log "FAIL: Sink output line count ($SINK_LINE_COUNT) does not match source input ($SOURCE_LINE_COUNT)"
+fi
 
 log "================================================================"
 if [ "$JSON_TEST_PASSED" = true ]; then
@@ -160,3 +134,7 @@ log "================================================================"
 log ""
 log "Logs saved to: $LOG_FILE"
 log ""
+
+if [ "$JSON_TEST_PASSED" != true ]; then
+    exit 1
+fi

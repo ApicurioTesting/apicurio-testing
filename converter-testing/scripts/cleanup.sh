@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="$PROJECT_DIR/.env"
+ENV_FILE="${ENV_FILE:-$PROJECT_DIR/.env}"
 
 log() {
     echo "$1"
@@ -37,22 +37,19 @@ for connector in avro-file-source avro-file-sink json-file-source json-file-sink
 done
 log ""
 
-# Stop and remove containers
+# Stop and remove containers (--rmi local removes locally-built images like the Connect image)
 log "Stopping containers..."
+COMPOSE_DOWN_ARGS="--remove-orphans"
+if [ "$REMOVE_VOLUMES" = true ]; then
+    COMPOSE_DOWN_ARGS="$COMPOSE_DOWN_ARGS --volumes"
+fi
 for compose_file in docker-compose-connect.yml docker-compose-registry.yml docker-compose-kafka.yml; do
     if [ -f "$PROJECT_DIR/$compose_file" ]; then
         log "  Stopping services in $compose_file..."
-        docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/$compose_file" down 2>/dev/null || true
+        docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/$compose_file" down --rmi local $COMPOSE_DOWN_ARGS 2>/dev/null || true
     fi
 done
 log ""
-
-# Remove volumes
-if [ "$REMOVE_VOLUMES" = true ]; then
-    log "Removing volumes..."
-    docker volume rm converter-connect-data 2>/dev/null || true
-    log ""
-fi
 
 # Remove network
 log "Removing network..."
@@ -67,10 +64,8 @@ if [ "$REMOVE_DATA" = true ]; then
     log ""
 fi
 
-# Remove custom Docker image
-log "Removing custom Docker image..."
-docker rmi converter-testing-connect 2>/dev/null || true
-log ""
+# Clean up any leftover override env file
+rm -f "$PROJECT_DIR/.env.override"
 
 log "================================================================"
 log "  Cleanup completed"
