@@ -176,13 +176,36 @@ check_readme_and_execute_snippets() {
     popd || error_exit "Failed to return to previous directory."
 }
 
+check_prerequisites() {
+    local missing=()
+
+    if ! command -v kubectl &>/dev/null; then
+        missing+=("kubectl")
+    fi
+
+    if ! command -v xmllint &>/dev/null; then
+        missing+=("xmllint (from libxml2)")
+    fi
+
+    if ! command -v unzip &>/dev/null; then
+        missing+=("unzip")
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error_exit "Missing required tools: ${missing[*]}"
+    fi
+}
+
 usage() {
-    echo "Usage: $0 [--cluster <cluster-name>] [--file <path-to-zip>] [--force]"
+    echo "Usage: $0 [--cluster <cluster-name>] [--file <path-to-zip>] [--force] [--provision]"
     echo ""
     echo "Optional Parameters:"
     echo "  --cluster <cluster-name>    Name of the cluster to configure (default: $USER)"
     echo "  --file <path-to-zip>        Path to the install examples zip file"
     echo "  --force                     Delete OCP project resources if tests fail"
+    echo "  --provision                 Provision a new OCP cluster if one does not exist."
+    echo "                              The cluster will be destroyed automatically when"
+    echo "                              the script finishes."
     echo "  -h, --help                  Show this help message"
     echo ""
     echo "Examples:"
@@ -190,12 +213,15 @@ usage() {
     echo "  $0 --cluster okd419       # Uses specific cluster"
     echo "  $0 --file /path/to/examples.zip  # Uses specific install examples file"
     echo "  $0 --force                # Clean up resources on test failure"
+    echo "  $0 --provision --file /path/to/examples.zip  # Provision cluster, test, then destroy"
     exit 1
 }
 
 CLUSTER_NAME="$USER"
 FILE_PATH=""
 FORCE_CLEANUP=false
+PROVISION=false
+CLUSTER_PROVISIONED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -211,6 +237,10 @@ while [[ $# -gt 0 ]]; do
             FORCE_CLEANUP=true
             shift
             ;;
+        --provision)
+            PROVISION=true
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -221,7 +251,33 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+check_prerequisites
+
+destroy_provisioned_cluster() {
+    if [[ "$CLUSTER_PROVISIONED" == "true" ]]; then
+        important "Destroying provisioned cluster '$CLUSTER_NAME'..."
+        "$BASE_DIR/destroy-cluster.sh" --cluster "$CLUSTER_NAME" || warning "Failed to destroy cluster '$CLUSTER_NAME'."
+    fi
+}
+trap destroy_provisioned_cluster EXIT
+
+if [[ "$PROVISION" == "true" ]]; then
+    load_cache_config
+    local_cluster_dir="$CLUSTERS_DIR/$CLUSTER_NAME"
+    if [[ -d "$local_cluster_dir" && -f "$local_cluster_dir/auth/kubeconfig" ]]; then
+        important "Cluster '$CLUSTER_NAME' already exists, skipping provisioning."
+    else
+        important "Provisioning OCP cluster '$CLUSTER_NAME'..."
+        "$BASE_DIR/install-cluster.sh" --cluster "$CLUSTER_NAME" || error_exit "Failed to provision cluster '$CLUSTER_NAME'."
+        CLUSTER_PROVISIONED=true
+    fi
+fi
+
 load_cluster_config "$CLUSTER_NAME"
+
+if ! kubectl cluster-info &>/dev/null; then
+    error_exit "Cannot connect to cluster '$CLUSTER_NAME'. Verify the cluster is running and the kubeconfig is valid."
+fi
 
 # If FILE_PATH is provided, check it exists and unpack it
 if [[ -n "$FILE_PATH" ]]; then
