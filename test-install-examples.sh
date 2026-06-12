@@ -176,6 +176,27 @@ check_readme_and_execute_snippets() {
     popd || error_exit "Failed to return to previous directory."
 }
 
+ensure_brew_pull_secret() {
+    local registry="brew.registry.redhat.io"
+
+    echo "Checking if pull secret for '$registry' is configured..."
+
+    local has_auth
+    has_auth=$(kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' 2>/dev/null \
+        | base64 -d 2>/dev/null \
+        | jq -r --arg reg "$registry" '.auths[$reg] // empty' 2>/dev/null)
+
+    if [[ -n "$has_auth" ]]; then
+        echo "Pull secret for '$registry' already exists, skipping configuration."
+        return 0
+    fi
+
+    echo "Pull secret for '$registry' not found, configuring..."
+    "$BASE_DIR/configure-pull-secret.sh" --cluster "$CLUSTER_NAME" \
+        || error_exit "Failed to configure pull secret for '$registry'."
+    echo "Pull secret for '$registry' configured successfully."
+}
+
 check_prerequisites() {
     local missing=()
 
@@ -189,6 +210,14 @@ check_prerequisites() {
 
     if ! command -v unzip &>/dev/null; then
         missing+=("unzip")
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        missing+=("jq")
+    fi
+
+    if ! command -v docker &>/dev/null; then
+        missing+=("docker")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -278,6 +307,8 @@ load_cluster_config "$CLUSTER_NAME"
 if ! kubectl cluster-info &>/dev/null; then
     error_exit "Cannot connect to cluster '$CLUSTER_NAME'. Verify the cluster is running and the kubeconfig is valid."
 fi
+
+ensure_brew_pull_secret
 
 # If FILE_PATH is provided, check it exists and unpack it
 if [[ -n "$FILE_PATH" ]]; then
