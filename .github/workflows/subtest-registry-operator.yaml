@@ -207,8 +207,8 @@ jobs:
     with:
       cluster-name: ${{ inputs.cluster-name }}
       cluster-version: ${{ inputs.cluster-version }}
-      control-nodes: 1 # Try with 1 control node to reduce resource usage. TODO: Adjust later if needed.
-      compute-nodes: 2
+      control-nodes: 3
+      compute-nodes: 3
       force: true
       expiration-hours: 6
     secrets: inherit
