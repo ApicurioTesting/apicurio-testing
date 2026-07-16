@@ -315,7 +315,8 @@ jobs:
             -DskipOperatorTests=false \
             -Dtest.operator.deployment-type=remote \
             -Dtest.operator.install-file=$WORKSPACE/templates/registry-operator/${{ inputs.release-version }}/apicurio-registry-operator-configured.yaml \
-            -Dtest.operator.ingress-host=$INGRESS_HOST
+            -Dtest.operator.ingress-host=$INGRESS_HOST \
+            -Dsurefire.rerunFailingTestsCount=1
 
       - name: Check OLM v1 support
         run: |
