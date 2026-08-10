@@ -18,6 +18,7 @@ show_usage() {
     echo "  --appImage <image>       Container image for the Apicurio Registry app (optional)"
     echo "  --uiImage <image>        Container image for the Apicurio Registry UI (optional)"
     echo "  --operatorImage <image>  Container image for the Apicurio Registry Operator (optional)"
+    echo "  --gitopsImage <image>    Container image for the GitOps sync sidecar (optional)"
     echo "  -h, --help               Display this help message and exit"
     echo ""
     echo "EXAMPLES:"
@@ -40,6 +41,7 @@ parse_arguments() {
     REGISTRY_APP_IMAGE=""
     REGISTRY_UI_IMAGE=""
     REGISTRY_OPERATOR_IMAGE=""
+    REGISTRY_GITOPS_SYNC_IMAGE=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -65,6 +67,10 @@ parse_arguments() {
                 ;;
             --operatorImage)
                 REGISTRY_OPERATOR_IMAGE="$2"
+                shift 2
+                ;;
+            --gitopsImage)
+                REGISTRY_GITOPS_SYNC_IMAGE="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -111,6 +117,9 @@ validate_and_set_defaults() {
     fi
     if [ -z "$REGISTRY_OPERATOR_IMAGE" ]; then
         REGISTRY_OPERATOR_IMAGE="quay.io/apicurio/apicurio-registry-3-operator:$APICURIO_REGISTRY_VERSION"
+    fi
+    if [ -z "$REGISTRY_GITOPS_SYNC_IMAGE" ]; then
+        REGISTRY_GITOPS_SYNC_IMAGE="quay.io/apicurio/apicurio-registry-gitops-sync:$APICURIO_REGISTRY_VERSION"
     fi
 
     # Set up environment variables
@@ -160,6 +169,7 @@ configure_template() {
     export REGISTRY_APP_IMAGE
     export REGISTRY_UI_IMAGE
     export REGISTRY_OPERATOR_IMAGE
+    export REGISTRY_GITOPS_SYNC_IMAGE
 
     # Substitute environment variables in template
     envsubst < "$APICURIO_OPERATOR_YAML" > "$CONFIGURED_OPERATOR_YAML"
@@ -183,6 +193,7 @@ display_summary() {
     echo "  App Image: $REGISTRY_APP_IMAGE"
     echo "  UI Image: $REGISTRY_UI_IMAGE"
     echo "  Operator Image: $REGISTRY_OPERATOR_IMAGE"
+    echo "  GitOps Image: $REGISTRY_GITOPS_SYNC_IMAGE"
     echo "  Namespace: $OPERATOR_NAMESPACE"
 }
 

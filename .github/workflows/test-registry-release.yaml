@@ -14,6 +14,9 @@ on:
       uiImage:
         description: UI image to test (optional)
         required: false
+      gitopsImage:
+        description: GitOps sync sidecar image to test (optional)
+        required: false
       testsRef:
         description: git tag to use for running tests
         required: true
@@ -50,6 +53,10 @@ on:
         type: string
       uiImage:
         description: UI image to test (optional)
+        required: false
+        type: string
+      gitopsImage:
+        description: GitOps sync sidecar image to test (optional)
         required: false
         type: string
       testsRef:
@@ -123,6 +130,7 @@ jobs:
           echo "  operatorImage: ${{ inputs.operatorImage }}"
           echo "  appImage: ${{ inputs.appImage }}"
           echo "  uiImage: ${{ inputs.uiImage }}"
+          echo "  gitopsImage: ${{ inputs.gitopsImage }}"
           echo "  testsRef: ${{ inputs.testsRef }}"
           echo "  isDownstream: ${{ inputs.isDownstream }}"
           echo "  skipClusterInstall: ${{ inputs.skipClusterInstall }}"
@@ -136,6 +144,7 @@ jobs:
             "operatorImage": "${{ inputs.operatorImage }}",
             "appImage": "${{ inputs.appImage }}",
             "uiImage": "${{ inputs.uiImage }}",
+            "gitopsImage": "${{ inputs.gitopsImage }}",
             "testsRef": "${{ inputs.testsRef }}",
             "isDownstream": "${{ inputs.isDownstream }}",
             "skipClusterInstall": "${{ inputs.skipClusterInstall }}",
@@ -196,6 +205,7 @@ jobs:
       OPERATOR_IMAGE: ${{ inputs.operatorImage }}
       APP_IMAGE: ${{ inputs.appImage }}
       UI_IMAGE: ${{ inputs.uiImage }}
+      GITOPS_IMAGE: ${{ inputs.gitopsImage }}
       DOCKER_SERVER: ${{ secrets.DOCKER_SERVER }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -248,7 +258,8 @@ jobs:
               --version $APICURIO_REGISTRY_VERSION \
               --operatorImage "$OPERATOR_IMAGE" \
               --appImage "$APP_IMAGE" \
-              --uiImage "$UI_IMAGE"
+              --uiImage "$UI_IMAGE" \
+              --gitopsImage "$GITOPS_IMAGE"
 
       - name: Save cluster state
         if: ${{ inputs.skipClusterInstall != 'true' && always() }}
@@ -2113,6 +2124,7 @@ jobs:
       OPERATOR_IMAGE: ${{ inputs.operatorImage }}
       APP_IMAGE: ${{ inputs.appImage }}
       UI_IMAGE: ${{ inputs.uiImage }}
+      GITOPS_IMAGE: ${{ inputs.gitopsImage }}
       DOCKER_SERVER: ${{ secrets.DOCKER_SERVER }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -2146,7 +2158,8 @@ jobs:
               --version $APICURIO_REGISTRY_VERSION \
               --operatorImage "$OPERATOR_IMAGE" \
               --appImage "$APP_IMAGE" \
-              --uiImage "$UI_IMAGE"
+              --uiImage "$UI_IMAGE" \
+              --gitopsImage "$GITOPS_IMAGE"
 
       - name: Save cluster state
         if: always()

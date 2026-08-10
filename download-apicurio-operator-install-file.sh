@@ -105,6 +105,7 @@ process_template() {
         -e "s|quay.io/apicurio/apicurio-registry:$version|\$REGISTRY_APP_IMAGE|g" \
         -e "s|quay.io/apicurio/apicurio-registry-ui:$version|\$REGISTRY_UI_IMAGE|g" \
         -e "s|quay.io/apicurio/apicurio-registry-3-operator:$version|\$REGISTRY_OPERATOR_IMAGE|g" \
+        -e "s|quay.io/apicurio/apicurio-registry-gitops-sync:$version|\$REGISTRY_GITOPS_SYNC_IMAGE|g" \
         "$template_file.tmp" > "$template_file"
 
     # Remove temporary file
