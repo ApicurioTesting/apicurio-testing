@@ -46,6 +46,10 @@ on:
         type: string
         description: UI image (optional - if not provided, the image from the upstream version will be used).
         required: false
+      gitopsImage:
+        type: string
+        description: GitOps sync sidecar image (optional - if not provided, the image from the upstream version will be used).
+        required: false
       # OLM
       artifact-cluster-name:
         type: string
@@ -101,6 +105,9 @@ on:
         type: string
         required: false
       uiImage:
+        type: string
+        required: false
+      gitopsImage:
         type: string
         required: false
       artifact-cluster-name:
@@ -163,6 +170,7 @@ jobs:
           echo "  operatorImage: ${{ inputs.operatorImage }}"
           echo "  appImage: ${{ inputs.appImage }}"
           echo "  uiImage: ${{ inputs.uiImage }}"
+          echo "  gitopsImage: ${{ inputs.gitopsImage }}"
           echo "  artifact-cluster-name: ${{ inputs.artifact-cluster-name }}"
           echo "  catalog-image: ${{ inputs.catalog-image }}"
           echo "  package-version: ${{ inputs.package-version }}"
@@ -292,7 +300,8 @@ jobs:
             --namespace PLACEHOLDER_NAMESPACE \
             --operatorImage "${{ inputs.operatorImage }}" \
             --appImage "${{ inputs.appImage }}" \
-            --uiImage "${{ inputs.uiImage }}"
+            --uiImage "${{ inputs.uiImage }}" \
+            --gitopsImage "${{ inputs.gitopsImage }}"
 
       - name: Checkout Registry
         run: |

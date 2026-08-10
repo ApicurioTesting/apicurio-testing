@@ -18,6 +18,10 @@ on:
         description: UI image to test (optional)
         required: false
         type: string
+      gitopsImage:
+        description: GitOps sync sidecar image to test (optional)
+        required: false
+        type: string
       issueNumber:
         description: Release tracker issue number in apicurio/rhboar-releases
         required: true
@@ -62,6 +66,7 @@ jobs:
       operatorImage: ${{ inputs.operatorImage }}
       appImage: ${{ inputs.appImage }}
       uiImage: ${{ inputs.uiImage }}
+      gitopsImage: ${{ inputs.gitopsImage }}
       testsRef: ${{ needs.resolve-tests-ref.outputs.testsRef }}
       isDownstream: 'true'
       skipClusterInstall: 'false'

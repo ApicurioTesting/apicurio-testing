@@ -18,6 +18,10 @@ on:
         description: UI image to test (optional)
         required: false
         type: string
+      gitopsImage:
+        description: GitOps sync sidecar image to test (optional)
+        required: false
+        type: string
       indexImageOcp416:
         description: Operator index image for OCP 4.16
         required: true
@@ -83,6 +87,7 @@ jobs:
       operatorImage: ${{ inputs.operatorImage }}
       appImage: ${{ inputs.appImage }}
       uiImage: ${{ inputs.uiImage }}
+      gitopsImage: ${{ inputs.gitopsImage }}
       artifact-cluster-name: ${{ inputs.artifactClusterName }}
       catalog-images: "4.16=${{ inputs.indexImageOcp416 }},4.20=${{ inputs.indexImageOcp420 }}"
       package-version: ${{ inputs.packageVersion }}

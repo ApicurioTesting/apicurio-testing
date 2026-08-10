@@ -19,6 +19,7 @@ show_usage() {
     echo "  --appImage <image>       Container image for the Apicurio Registry app (optional)"
     echo "  --uiImage <image>        Container image for the Apicurio Registry UI (optional)"
     echo "  --operatorImage <image>  Container image for the Apicurio Registry Operator (optional)"
+    echo "  --gitopsImage <image>    Container image for the GitOps sync sidecar (optional)"
     echo "  -h, --help               Display this help message and exit"
     echo ""
     echo "EXAMPLES:"
@@ -41,6 +42,7 @@ parse_arguments() {
     REGISTRY_APP_IMAGE=""
     REGISTRY_UI_IMAGE=""
     REGISTRY_OPERATOR_IMAGE=""
+    REGISTRY_GITOPS_SYNC_IMAGE=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -62,6 +64,10 @@ parse_arguments() {
                 ;;
             --operatorImage)
                 REGISTRY_OPERATOR_IMAGE="$2"
+                shift 2
+                ;;
+            --gitopsImage)
+                REGISTRY_GITOPS_SYNC_IMAGE="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -115,6 +121,9 @@ configure_template_if_needed() {
         fi
         if [ -n "$REGISTRY_OPERATOR_IMAGE" ]; then
             CONFIGURE_ARGS="$CONFIGURE_ARGS --operatorImage $REGISTRY_OPERATOR_IMAGE"
+        fi
+        if [ -n "$REGISTRY_GITOPS_SYNC_IMAGE" ]; then
+            CONFIGURE_ARGS="$CONFIGURE_ARGS --gitopsImage $REGISTRY_GITOPS_SYNC_IMAGE"
         fi
 
         # Call the configure script

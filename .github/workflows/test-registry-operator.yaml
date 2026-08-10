@@ -21,6 +21,9 @@ on:
       uiImage:
         description: UI image (optional - if not provided, the image from the upstream version will be used).
         required: false
+      gitopsImage:
+        description: GitOps sync sidecar image (optional - if not provided, the image from the upstream version will be used).
+        required: false
       # OLM
       artifact-cluster-name:
         type: string
@@ -62,6 +65,9 @@ on:
         type: string
         required: false
       uiImage:
+        type: string
+        required: false
+      gitopsImage:
         type: string
         required: false
       artifact-cluster-name:
@@ -110,6 +116,7 @@ jobs:
           echo "  operatorImage: ${{ inputs.operatorImage }}"
           echo "  appImage: ${{ inputs.appImage }}"
           echo "  uiImage: ${{ inputs.uiImage }}"
+          echo "  gitopsImage: ${{ inputs.gitopsImage }}"
           echo "  artifact-cluster-name: ${{ inputs.artifact-cluster-name }}"
           echo "  catalog-images: ${{ inputs.catalog-images }}"
           echo "  package-version: ${{ inputs.package-version }}"
@@ -211,6 +218,7 @@ jobs:
       operatorImage: ${{ inputs.operatorImage }}
       appImage: ${{ inputs.appImage }}
       uiImage: ${{ inputs.uiImage }}
+      gitopsImage: ${{ inputs.gitopsImage }}
       artifact-cluster-name: ${{ inputs.artifact-cluster-name }}
       catalog-image: ${{ matrix.catalog-image }}
       package-version: ${{ inputs.package-version }}
