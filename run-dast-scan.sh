@@ -60,7 +60,7 @@ get_oauth2_token() {
     
     # Make the OAuth2 token request
     local response
-    response=$(curl -v -X POST "$token_url" \
+    response=$(curl -s -X POST "$token_url" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=password" \
         -d "client_id=$client_id" \
@@ -81,13 +81,11 @@ get_oauth2_token() {
     # Check if jq parsing was successful and token exists
     if [ $? -ne 0 ]; then
         echo "Error: Failed to parse JSON response with jq"
-        echo "Response: $response"
         exit 1
     fi
     
     if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
         echo "Error: Failed to extract access token from OAuth2 response"
-        echo "Response: $response"
         exit 1
     fi
     
@@ -322,9 +320,6 @@ if [ -n "$AUTH_TOKEN_URL" ]; then
     get_oauth2_token "$AUTH_TOKEN_URL" "$AUTH_CLIENT_ID" "$AUTH_CLIENT_SECRET" "$AUTH_USERNAME" "$AUTH_PASSWORD"
     export ACCESS_TOKEN
     echo "Access token retrieved and exported as ACCESS_TOKEN environment variable"
-    echo "--"
-    echo "$ACCESS_TOKEN"
-    echo "--"
 
     echo "Checking that the access token works..."
     echo "--"

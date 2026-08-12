@@ -47,11 +47,13 @@ if [ "$REMOVE_CACHE" = true ]; then
 fi
 if [ ! -d "$CACHE_DIR" ]; then
   if [ -n "$GITHUB_TOKEN" ]; then
-    git clone --depth 1 "https://$GITHUB_TOKEN@github.com/ApicurioTesting/apicurio-testing-cache.git" "$CACHE_DIR"
+    AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+    git -c "http.extraheader=$AUTH_HEADER" clone --depth 1 "https://github.com/ApicurioTesting/apicurio-testing-cache.git" "$CACHE_DIR"
     pushd "$CACHE_DIR" > /dev/null || error_exit "Failed to enter directory."
     git config user.name "apicurio-ci"
     git config user.email "apicurio.ci@gmail.com"
     git config pull.rebase true
+    git config http.extraheader "$AUTH_HEADER"
   else
     git clone --depth 1 git@github.com:ApicurioTesting/apicurio-testing-cache.git "$CACHE_DIR"
     pushd "$CACHE_DIR" > /dev/null || error_exit "Failed to enter directory."

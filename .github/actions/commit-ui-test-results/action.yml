@@ -18,20 +18,25 @@ runs:
   steps:
     - name: Collect and commit UI test results
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         WORK_DIR=".work"
         NAME="results-for-ui-tests"
         RESULTS_DIR="$WORK_DIR/$NAME"
 
+        AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+
         # Clone the results repository
         rm -rf $RESULTS_DIR
-        git clone https://${{ inputs.github-token }}@github.com/ApicurioTesting/apicurio-testing-results.git $RESULTS_DIR
+        git -c "http.extraheader=$AUTH_HEADER" clone https://github.com/ApicurioTesting/apicurio-testing-results.git $RESULTS_DIR
         pushd .
         cd $RESULTS_DIR
         # Configure git for the results repository
         git config user.name "apicurio-ci"
         git config user.email "apicurio.ci@gmail.com"
         git config pull.rebase true
+        git config http.extraheader "$AUTH_HEADER"
         popd
         
         # Create directory structure in the results repository
