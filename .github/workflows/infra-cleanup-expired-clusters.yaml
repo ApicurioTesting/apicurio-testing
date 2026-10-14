@@ -119,106 +119,79 @@ jobs:
         if: always()
         uses: ./.github/actions/save-cluster-state
 
-      - name: Send Slack notification
+      # Slack, sent with Apicurio/apicurio-github-actions/notify-slack. Clusters
+      # about to expire go to the important channel, mentioning their creator
+      # (the first one with a SLACK_USER_MAP entry); the others are named in
+      # the text. Destroyed clusters go to the general channel, no mention.
+      - name: Prepare Slack messages
+        id: slack
         if: ${{ steps.cleanup.outputs.destroyed-clusters != '' || steps.cleanup.outputs.expiring-clusters != '' }}
+        env:
+          DESTROYED: ${{ steps.cleanup.outputs.destroyed-clusters }}
+          EXPIRING: ${{ steps.cleanup.outputs.expiring-clusters }}
+          DRY_RUN: ${{ inputs.dry-run || 'false' }}
         run: |
-          DESTROYED="${{ steps.cleanup.outputs.destroyed-clusters }}"
-          EXPIRING="${{ steps.cleanup.outputs.expiring-clusters }}"
-          DRY_RUN="${{ inputs.dry-run || 'false' }}"
-          WEBHOOK_DESTROYED="${{ secrets.SLACK_GENERAL_NOTIFICATION_WEBHOOK }}"
-          WEBHOOK_EXPIRING="${{ secrets.SLACK_IMPORTANT_NOTIFICATION_WEBHOOK }}"
-
-          SLACK_USERS_FILE="slack-users.json"
-          LINK="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          # Helper: resolve Slack user ID from GitHub username
-          UNRESOLVED_USERS=""
-          SLACK_USER_IDS=""
-          resolve_slack_id() {
-            local GITHUB_USER="$1"
-            local SLACK_ID=""
-            if [[ -f "$SLACK_USERS_FILE" ]]; then
-              SLACK_ID=$(jq -r --arg user "$GITHUB_USER" '.[$user] // ""' "$SLACK_USERS_FILE")
-            fi
-            if [[ -n "$SLACK_ID" ]]; then
-              SLACK_USER_IDS="${SLACK_USER_IDS}${SLACK_ID},"
-            elif [[ "$GITHUB_USER" != "apicurio-ci" ]]; then
-              UNRESOLVED_USERS="true"
-            fi
-          }
-
           NL=$'\n'
-          SLACK_USERS_LINK="https://github.com/${{ github.repository }}/blob/main/${SLACK_USERS_FILE}"
-
-          # Send a Slack message to the given webhook
-          send_slack() {
-            local WEBHOOK="$1"
-            local MESSAGE="$2"
-            local USER_ID="$3"
-            if [[ -z "$WEBHOOK" ]]; then
-              echo "⚠️  Webhook not set. Skipping notification."
-              return
-            fi
-            local PAYLOAD
-            if [[ -n "$USER_ID" ]]; then
-              PAYLOAD=$(jq -n --arg text "$MESSAGE" --arg user "$USER_ID" '{text: $text, user: $user}')
-            else
-              PAYLOAD=$(jq -n --arg text "$MESSAGE" '{text: $text}')
-            fi
-            curl -s -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK"
-          }
-
-          # Expiring soon warnings → important webhook
+          EXPIRING_TEXT=""
+          EXPIRING_MENTION=""
           if [[ -n "$EXPIRING" ]]; then
-            MESSAGE=":warning: Cluster Cleanup Report${NL}"
-            SLACK_USER_IDS=""
+            EXPIRING_TEXT=":warning: Cluster Cleanup Report${NL}"
             IFS=',' read -ra PAIRS <<< "$EXPIRING"
             for PAIR in "${PAIRS[@]}"; do
-              if [[ -z "$PAIR" ]]; then
-                continue
-              fi
+              [[ -z "$PAIR" ]] && continue
               CLUSTER_NAME=$(echo "$PAIR" | cut -d: -f1)
               GITHUB_USER=$(echo "$PAIR" | cut -d: -f2)
               REMAINING_H=$(echo "$PAIR" | cut -d: -f3)
-              resolve_slack_id "$GITHUB_USER"
-              MESSAGE="${MESSAGE}${NL}:hourglass_flowing_sand: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) expires in ~${REMAINING_H}h"
-              if [[ "$DRY_RUN" == "true" ]]; then
-                MESSAGE="${MESSAGE} (dry run)"
+              if [[ "$GITHUB_USER" != "unknown" && ",$EXPIRING_MENTION," != *",$GITHUB_USER,"* ]]; then
+                EXPIRING_MENTION="${EXPIRING_MENTION:+$EXPIRING_MENTION,}$GITHUB_USER"
               fi
+              EXPIRING_TEXT="${EXPIRING_TEXT}${NL}:hourglass_flowing_sand: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) expires in ~${REMAINING_H}h"
+              [[ "$DRY_RUN" == "true" ]] && EXPIRING_TEXT="${EXPIRING_TEXT} (dry run)"
             done
-            if [[ -n "$UNRESOLVED_USERS" ]]; then
-              MESSAGE="${MESSAGE}${NL}${NL}To get mentioned, add your GitHub-to-Slack mapping in ${SLACK_USERS_LINK}"
-            fi
-            MESSAGE="${MESSAGE}${NL}${NL}${LINK}"
-            # Pass the first resolved Slack user ID for the user variable
-            FIRST_SLACK_ID="${SLACK_USER_IDS%%,*}"
-            send_slack "$WEBHOOK_EXPIRING" "$MESSAGE" "$FIRST_SLACK_ID"
           fi
 
-          # Destroyed clusters → regular webhook
-          UNRESOLVED_USERS=""
-          SLACK_USER_IDS=""
+          DESTROYED_TEXT=""
           if [[ -n "$DESTROYED" ]]; then
-            MESSAGE=":broom: Cluster Cleanup Report${NL}"
+            DESTROYED_TEXT=":broom: Cluster Cleanup Report${NL}"
             IFS=',' read -ra PAIRS <<< "$DESTROYED"
             for PAIR in "${PAIRS[@]}"; do
-              if [[ -z "$PAIR" ]]; then
-                continue
-              fi
+              [[ -z "$PAIR" ]] && continue
               CLUSTER_NAME="${PAIR%%:*}"
               GITHUB_USER="${PAIR#*:}"
-              resolve_slack_id "$GITHUB_USER"
               if [[ "$DRY_RUN" == "true" ]]; then
-                MESSAGE="${MESSAGE}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has expired (dry run, not destroyed)"
+                DESTROYED_TEXT="${DESTROYED_TEXT}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has expired (dry run, not destroyed)"
               else
-                MESSAGE="${MESSAGE}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has been destroyed (expired)"
+                DESTROYED_TEXT="${DESTROYED_TEXT}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has been destroyed (expired)"
               fi
             done
-            if [[ -n "$UNRESOLVED_USERS" ]]; then
-              MESSAGE="${MESSAGE}${NL}${NL}To get mentioned, add your GitHub-to-Slack mapping in ${SLACK_USERS_LINK}"
-            fi
-            MESSAGE="${MESSAGE}${NL}${NL}${LINK}"
-            # Pass the first resolved Slack user ID for the user variable
-            FIRST_SLACK_ID="${SLACK_USER_IDS%%,*}"
-            send_slack "$WEBHOOK_DESTROYED" "$MESSAGE" "$FIRST_SLACK_ID"
           fi
+
+          {
+            echo "expiring-mention=$EXPIRING_MENTION"
+            echo "expiring-text<<EOF_SLACK"
+            echo "$EXPIRING_TEXT"
+            echo "EOF_SLACK"
+            echo "destroyed-text<<EOF_SLACK"
+            echo "$DESTROYED_TEXT"
+            echo "EOF_SLACK"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify expiring clusters
+        if: ${{ steps.cleanup.outputs.expiring-clusters != '' }}
+        uses: Apicurio/apicurio-github-actions/notify-slack@bd19cbe33797325a571cd7ffd58f639b62e128a2 # v2.4.0
+        with:
+          level: important
+          text: ${{ steps.slack.outputs.expiring-text }}
+          link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          mention: ${{ steps.slack.outputs.expiring-mention }}
+          user-map: ${{ secrets.SLACK_USER_MAP }}
+          important-webhook: ${{ secrets.SLACK_IMPORTANT_NOTIFICATION_WEBHOOK }}
+
+      - name: Notify destroyed clusters
+        if: ${{ steps.cleanup.outputs.destroyed-clusters != '' }}
+        uses: Apicurio/apicurio-github-actions/notify-slack@bd19cbe33797325a571cd7ffd58f639b62e128a2 # v2.4.0
+        with:
+          level: general
+          text: ${{ steps.slack.outputs.destroyed-text }}
+          link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          general-webhook: ${{ secrets.SLACK_GENERAL_NOTIFICATION_WEBHOOK }}
