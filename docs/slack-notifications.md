@@ -8,7 +8,11 @@ through the shared [notify-slack](https://github.com/Apicurio/apicurio-github-ac
 - **Expiring soon** (less than 20% of a cluster's lifetime left) goes to the important channel and @mentions
   the user who created the cluster, so they can extend or save their work. When several users' clusters
   are expiring, the first one with a Slack mapping is mentioned and the rest are named in the text.
-- **Destroyed** (expired and cleaned up) goes to the general channel, without a mention.
+- **Could not be destroyed** (expired, but destroying it failed) goes to the important channel and @mentions
+  the creator in the same way: the cluster keeps running, and costing money, until someone cleans it up.
+  It is reported once; the job keeps retrying every hour.
+
+A cluster that is destroyed as planned sends nothing: its creator was warned before it expired.
 
 For the @mention to work, your GitHub username must be mapped to your Slack member ID in the `SLACK_USER_MAP`
 organization secret. If no mapping is found, the notification names your GitHub username instead.

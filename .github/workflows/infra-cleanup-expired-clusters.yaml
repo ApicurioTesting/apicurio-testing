@@ -46,6 +46,7 @@ jobs:
           NOW_EPOCH=$(date +%s)
           DESTROYED_CLUSTERS=""
           EXPIRING_CLUSTERS=""
+          FAILED_CLUSTERS=""
           DRY_RUN="${{ inputs.dry-run || 'false' }}"
 
           echo "Current time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -85,6 +86,12 @@ jobs:
                   DESTROYED_CLUSTERS="${DESTROYED_CLUSTERS}${CLUSTER_NAME}:${CREATED_BY:-unknown},"
                 else
                   echo "  ❌ Failed to destroy cluster '$CLUSTER_NAME'."
+                  # Retried every run, reported once: the marker stays in the
+                  # cluster's directory until a destroy succeeds and removes it.
+                  if [[ ! -f "$CLUSTER_DIR/destroy-failure-reported" ]]; then
+                    touch "$CLUSTER_DIR/destroy-failure-reported"
+                    FAILED_CLUSTERS="${FAILED_CLUSTERS}${CLUSTER_NAME}:${CREATED_BY:-unknown},"
+                  fi
                 fi
               fi
             else
@@ -114,24 +121,37 @@ jobs:
 
           echo "destroyed-clusters=$DESTROYED_CLUSTERS" >> $GITHUB_OUTPUT
           echo "expiring-clusters=$EXPIRING_CLUSTERS" >> $GITHUB_OUTPUT
+          echo "failed-clusters=$FAILED_CLUSTERS" >> $GITHUB_OUTPUT
 
       - name: Save cluster state
         if: always()
         uses: ./.github/actions/save-cluster-state
 
-      # Slack, sent with Apicurio/apicurio-github-actions/notify-slack. Clusters
-      # about to expire go to the important channel, mentioning their creator
-      # (the first one with a SLACK_USER_MAP entry); the others are named in
-      # the text. Destroyed clusters go to the general channel, no mention.
+      # Slack, sent with Apicurio/apicurio-github-actions/notify-slack, to the
+      # important channel only, mentioning the clusters' creators (the first
+      # one with a SLACK_USER_MAP entry; the others are named in the text):
+      # clusters about to expire, so their creators can save their work, and
+      # expired clusters that could not be destroyed, which keep costing money
+      # until someone cleans them up. A destroyed cluster says nothing: its
+      # creator was warned before it expired.
       - name: Prepare Slack messages
         id: slack
-        if: ${{ steps.cleanup.outputs.destroyed-clusters != '' || steps.cleanup.outputs.expiring-clusters != '' }}
+        if: ${{ steps.cleanup.outputs.expiring-clusters != '' || steps.cleanup.outputs.failed-clusters != '' }}
         env:
-          DESTROYED: ${{ steps.cleanup.outputs.destroyed-clusters }}
           EXPIRING: ${{ steps.cleanup.outputs.expiring-clusters }}
+          FAILED: ${{ steps.cleanup.outputs.failed-clusters }}
           DRY_RUN: ${{ inputs.dry-run || 'false' }}
         run: |
           NL=$'\n'
+          # Adds a creator to a comma-separated mention list, once.
+          add_mention() {
+            local list=$1 user=$2
+            if [[ "$user" != "unknown" && ",$list," != *",$user,"* ]]; then
+              list="${list:+$list,}$user"
+            fi
+            echo "$list"
+          }
+
           EXPIRING_TEXT=""
           EXPIRING_MENTION=""
           if [[ -n "$EXPIRING" ]]; then
@@ -142,27 +162,23 @@ jobs:
               CLUSTER_NAME=$(echo "$PAIR" | cut -d: -f1)
               GITHUB_USER=$(echo "$PAIR" | cut -d: -f2)
               REMAINING_H=$(echo "$PAIR" | cut -d: -f3)
-              if [[ "$GITHUB_USER" != "unknown" && ",$EXPIRING_MENTION," != *",$GITHUB_USER,"* ]]; then
-                EXPIRING_MENTION="${EXPIRING_MENTION:+$EXPIRING_MENTION,}$GITHUB_USER"
-              fi
+              EXPIRING_MENTION=$(add_mention "$EXPIRING_MENTION" "$GITHUB_USER")
               EXPIRING_TEXT="${EXPIRING_TEXT}${NL}:hourglass_flowing_sand: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) expires in ~${REMAINING_H}h"
               [[ "$DRY_RUN" == "true" ]] && EXPIRING_TEXT="${EXPIRING_TEXT} (dry run)"
             done
           fi
 
-          DESTROYED_TEXT=""
-          if [[ -n "$DESTROYED" ]]; then
-            DESTROYED_TEXT=":broom: Cluster Cleanup Report${NL}"
-            IFS=',' read -ra PAIRS <<< "$DESTROYED"
+          FAILED_TEXT=""
+          FAILED_MENTION=""
+          if [[ -n "$FAILED" ]]; then
+            FAILED_TEXT=":x: Cluster Cleanup: expired clusters could not be destroyed and are still running. The job retries every hour; check the run log, and destroy them by hand if it keeps failing.${NL}"
+            IFS=',' read -ra PAIRS <<< "$FAILED"
             for PAIR in "${PAIRS[@]}"; do
               [[ -z "$PAIR" ]] && continue
               CLUSTER_NAME="${PAIR%%:*}"
               GITHUB_USER="${PAIR#*:}"
-              if [[ "$DRY_RUN" == "true" ]]; then
-                DESTROYED_TEXT="${DESTROYED_TEXT}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has expired (dry run, not destroyed)"
-              else
-                DESTROYED_TEXT="${DESTROYED_TEXT}${NL}:wastebasket: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER}) has been destroyed (expired)"
-              fi
+              FAILED_MENTION=$(add_mention "$FAILED_MENTION" "$GITHUB_USER")
+              FAILED_TEXT="${FAILED_TEXT}${NL}:fire: Cluster '${CLUSTER_NAME}' (created by ${GITHUB_USER})"
             done
           fi
 
@@ -171,8 +187,9 @@ jobs:
             echo "expiring-text<<EOF_SLACK"
             echo "$EXPIRING_TEXT"
             echo "EOF_SLACK"
-            echo "destroyed-text<<EOF_SLACK"
-            echo "$DESTROYED_TEXT"
+            echo "failed-mention=$FAILED_MENTION"
+            echo "failed-text<<EOF_SLACK"
+            echo "$FAILED_TEXT"
             echo "EOF_SLACK"
           } >> "$GITHUB_OUTPUT"
 
@@ -187,11 +204,13 @@ jobs:
           user-map: ${{ secrets.SLACK_USER_MAP }}
           important-webhook: ${{ secrets.SLACK_IMPORTANT_NOTIFICATION_WEBHOOK }}
 
-      - name: Notify destroyed clusters
-        if: ${{ steps.cleanup.outputs.destroyed-clusters != '' }}
+      - name: Notify clusters that could not be destroyed
+        if: ${{ steps.cleanup.outputs.failed-clusters != '' }}
         uses: Apicurio/apicurio-github-actions/notify-slack@bd19cbe33797325a571cd7ffd58f639b62e128a2 # v2.4.0
         with:
-          level: general
-          text: ${{ steps.slack.outputs.destroyed-text }}
+          level: important
+          text: ${{ steps.slack.outputs.failed-text }}
           link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          general-webhook: ${{ secrets.SLACK_GENERAL_NOTIFICATION_WEBHOOK }}
+          mention: ${{ steps.slack.outputs.failed-mention }}
+          user-map: ${{ secrets.SLACK_USER_MAP }}
+          important-webhook: ${{ secrets.SLACK_IMPORTANT_NOTIFICATION_WEBHOOK }}
