@@ -1782,6 +1782,137 @@ jobs:
           github-token: ${{ secrets.ACCESS_TOKEN }}
 
 
+  os420_gitops:
+    name: Apicurio Registry (gitops)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: os420
+    if: ${{ always() && inputs.smokeOnly != 'true' }}
+
+    env:
+      CLUSTER_NAME: ci420
+      NAMESPACE: gitops
+      PROFILE: gitops
+      DOCKER_SERVER: ${{ secrets.DOCKER_SERVER }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      DOCKER_EMAIL: ${{ secrets.DOCKER_EMAIL }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Verify kubectl
+        run: kubectl version --client
+
+      - name: Restore cluster state
+        if: always()
+        uses: ./.github/actions/restore-cluster-state
+        with:
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Install Apicurio Registry
+        run: |
+          ./install-apicurio-registry.sh --cluster $CLUSTER_NAME --namespace $NAMESPACE --profile $PROFILE
+
+      - name: Commit pod logs to repository
+        if: failure()
+        uses: ./.github/actions/commit-pod-logs
+        with:
+          cluster-name: ${{ env.CLUSTER_NAME }}
+          namespace: ${{ env.NAMESPACE }}
+          job-name: ${{ github.job }}
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+
+  os420_gitops_integrationtests:
+    name: Integration Tests (gitops)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: os420_gitops
+
+    env:
+      CLUSTER_NAME: ci420
+      NAMESPACE: gitops
+      APICURIO_REGISTRY_VERSION: ${{ inputs.releaseVersion }}
+      TEST_GROUPS: gitops
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Configure Docker API version
+        if: always()
+        run: |
+          echo "api.version=1.44" > ~/.docker-java.properties
+
+      - name: Restore cluster state
+        if: always()
+        uses: ./.github/actions/restore-cluster-state
+        with:
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Run Integration Tests
+        run: |
+          ./run-integration-tests.sh --cluster $CLUSTER_NAME --namespace $NAMESPACE --tag ${{ inputs.testsRef }} --testGroups $TEST_GROUPS
+
+      - name: Commit integration test results to repository
+        if: always()
+        uses: ./.github/actions/commit-integration-test-results
+        with:
+          cluster-name: ${{ env.CLUSTER_NAME }}
+          namespace: ${{ env.NAMESPACE }}
+          job-name: ${{ github.job }}
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Commit pod logs to repository
+        if: failure()
+        uses: ./.github/actions/commit-pod-logs
+        with:
+          cluster-name: ${{ env.CLUSTER_NAME }}
+          namespace: ${{ env.NAMESPACE }}
+          job-name: ${{ github.job }}
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+
+  os420_gitops_teardown:
+    name: Destroy Registry (gitops)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - os420_gitops_integrationtests
+    if: ${{ always() && inputs.smokeOnly != 'true' }}
+
+    env:
+      CLUSTER_NAME: ci420
+      NAMESPACE: gitops
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Restore cluster state
+        if: always()
+        uses: ./.github/actions/restore-cluster-state
+        with:
+          github-token: ${{ secrets.ACCESS_TOKEN }}
+
+      - name: Destroy Namespace
+        run: |
+          ./destroy-namespace.sh --cluster $CLUSTER_NAME --namespace $NAMESPACE
+
+
   os420_inmemory_teardown:
     name: Destroy Registry (inmemory)
     runs-on: ubuntu-latest
@@ -2065,6 +2196,7 @@ jobs:
     needs:
       - initialize-globals
       - os420_inmemory_teardown
+      - os420_gitops_teardown
       - os420_pg18_teardown
       - os420_pg12_teardown
       - os420_mysql84_teardown
