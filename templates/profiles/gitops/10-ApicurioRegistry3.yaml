@@ -1,0 +1,34 @@
+apiVersion: registry.apicur.io/v1
+kind: ApicurioRegistry3
+metadata:
+  name: $APPLICATION_NAME
+spec:
+  app:
+    storage:
+      type: gitops
+      gitops:
+        registryId: e2e-test
+        repos:
+          - dir: default
+            branch: main
+    ingress:
+      host: $APP_INGRESS_URL
+    podTemplateSpec:
+      spec:
+        initContainers:
+          - name: git-repo-init
+            image: alpine/git:latest
+            command: ["/bin/sh", "/init-data/init-repo.sh"]
+            volumeMounts:
+              - name: gitops-repos
+                mountPath: /repos
+              - name: init-data
+                mountPath: /init-data
+        volumes:
+          - name: init-data
+            configMap:
+              name: gitops-test-data
+              defaultMode: 0755
+  ui:
+    ingress:
+      host: $UI_INGRESS_URL
