@@ -1,0 +1,19 @@
+apiVersion: registry.apicur.io/v1
+kind: ApicurioRegistry3
+metadata:
+  name: $APPLICATION_NAME
+spec:
+  app:
+    storage:
+      type: gitops
+      gitops:
+        registryId: e2e-test
+        repos:
+          - dir: default
+            branch: main
+            url: git://gitops-git-server:9418/default
+    ingress:
+      host: $APP_INGRESS_URL
+  ui:
+    ingress:
+      host: $UI_INGRESS_URL
